@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { MemoryStore } from "./memory.js";
+import { PolicyArbitrator } from "./policyArbitration.js";
 import { ChatMessage } from "./types.js";
 
 type LlmComplete = (messages: Array<{ role: "system" | "user" | "assistant"; content: string }>) => Promise<string>;
@@ -20,6 +21,7 @@ interface PolicyRecord {
   evolvedFrom?: string;
   createdTs: string;
   updatedTs: string;
+  conflicts?: string[];
 }
 
 interface PolicyState {
@@ -29,6 +31,7 @@ interface PolicyState {
 
 export class LearningEngine {
   private readonly stateFile: string;
+  private readonly arbitrator = new PolicyArbitrator();
 
   constructor(private readonly memory: MemoryStore, baseDir = process.cwd()) {
     this.stateFile = path.join(baseDir, ".memory", "policy-state.json");
@@ -48,36 +51,40 @@ export class LearningEngine {
       row.updatedTs = now;
     }
 
-    const saved: string[] = [];
-    const evolved: string[] = [];
+    const arbitration = this.arbitrator.resolve([
+      ...incoming.map((p) => ({ text: p, confidence: 0.63, source: "incoming" })),
+      ...state.records.map((r) => ({ text: r.text, confidence: Math.min(0.99, r.score / 5), source: "memory" }))
+    ]);
 
-    for (const policy of incoming.slice(0, 8)) {
-      const existing = this.findClosestPolicy(state.records, policy);
+    const saved: string[] = [];
+
+    for (const policy of arbitration.resolved.slice(0, 10)) {
+      const existing = this.findClosestPolicy(state.records, policy.text);
       if (!existing) {
         state.records.push({
-          text: policy,
-          score: 1,
+          text: policy.text,
+          score: Number((policy.confidence * 5).toFixed(2)),
           updates: 1,
           streak: 1,
           decay: 0,
+          conflicts: policy.conflictsWith,
           createdTs: now,
           updatedTs: now
         });
-        saved.push(`new: ${policy}`);
+        saved.push(`new: ${policy.text}`);
         continue;
       }
 
       existing.updates += 1;
       existing.streak += 1;
       existing.decay = 0;
-      existing.score = Number(Math.min(5, existing.score + 0.7 + existing.streak * 0.05).toFixed(2));
+      existing.score = Number(Math.min(5, existing.score + 0.5 + policy.confidence * 0.5).toFixed(2));
       existing.updatedTs = now;
+      existing.conflicts = policy.conflictsWith;
 
-      if (existing.text !== policy && this.shouldEvolve(existing, policy)) {
-        const oldText = existing.text;
-        existing.text = policy;
-        existing.evolvedFrom = oldText;
-        evolved.push(`${oldText} -> ${policy}`);
+      if (existing.text !== policy.text && this.shouldEvolve(existing, policy.text)) {
+        existing.evolvedFrom = existing.text;
+        existing.text = policy.text;
       }
 
       saved.push(`update: ${existing.text} (score=${existing.score.toFixed(2)})`);
@@ -92,10 +99,11 @@ export class LearningEngine {
     await this.saveState(state);
 
     for (const p of state.records.slice(0, 6)) {
+      const conflictTag = (p.conflicts?.length ?? 0) > 0 ? "conflicted" : "stable";
       await this.memory.add({
         kind: "policy",
         text: `${p.text} [score=${p.score.toFixed(2)} updates=${p.updates}]`,
-        tags: ["policy", "auto", p.score >= 3 ? "stable" : "candidate"]
+        tags: ["policy", "auto", conflictTag]
       });
     }
 
@@ -116,7 +124,7 @@ export class LearningEngine {
         `Failed: ${report.failed.join(" | ") || "n/a"}`,
         `Policies observed: ${incoming.join(" | ") || "n/a"}`,
         `Top active policies: ${top || "n/a"}`,
-        `Policy evolution: ${evolved.join(" | ") || "none"}`
+        `Conflicts detected: ${arbitration.conflicts.length}`
       ].join("\n"),
       tags: ["summary", "auto", "learning-cycle"]
     });
@@ -124,7 +132,7 @@ export class LearningEngine {
     return [
       "Learning cycle complete.",
       `Saved/updated: ${saved.length}`,
-      `Evolved: ${evolved.length}`,
+      `Conflicts detected: ${arbitration.conflicts.length}`,
       `Top policies: ${top || "none"}`
     ].join("\n");
   }
@@ -142,7 +150,9 @@ export class LearningEngine {
     const rows = state.records
       .sort((a, b) => b.score - a.score)
       .slice(0, limit)
-      .map((r) => `- ${r.text} | score=${r.score.toFixed(2)} updates=${r.updates} streak=${r.streak} decay=${r.decay.toFixed(2)}`);
+      .map((r) =>
+        `- ${r.text} | score=${r.score.toFixed(2)} updates=${r.updates} streak=${r.streak} decay=${r.decay.toFixed(2)} conflicts=${r.conflicts?.length ?? 0}`
+      );
     return rows.join("\n") || "No learned policies yet.";
   }
 

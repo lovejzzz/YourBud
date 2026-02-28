@@ -12,7 +12,8 @@
     "test": "npm run test:unit && npm run test:smoke",
     "test:unit": "tsx --test test/**/*.test.ts",
     "test:smoke": "node test/smoke.mjs",
-    "smoke:cli": "node test/cli-smoke.mjs"
+    "smoke:cli": "node test/cli-smoke.mjs",
+    "bench": "npm run build && node test/benchmarks.mjs"
   },
   "dependencies": {
     "dotenv": "^16.4.5"

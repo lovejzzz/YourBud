@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { EmbeddingProvider, SemanticRetrieval, VectorStore } from "./semanticRetrieval.js";
 
 export type LibraryKind = "knowledge" | "thinking" | "reflection" | "self-awareness";
 
@@ -20,11 +21,15 @@ export class CentralLibrary {
   private readonly dir: string;
   private readonly file: string;
   private readonly indexFile: string;
+  private readonly vectorFile: string;
+  private readonly retrieval: SemanticRetrieval;
 
-  constructor(baseDir = process.cwd()) {
+  constructor(baseDir = process.cwd(), embedder?: EmbeddingProvider) {
     this.dir = path.join(baseDir, ".memory");
     this.file = path.join(this.dir, "library.json");
     this.indexFile = path.join(this.dir, "library.index.json");
+    this.vectorFile = path.join(this.dir, "library.vectors.json");
+    this.retrieval = new SemanticRetrieval(embedder);
   }
 
   async init(): Promise<void> {
@@ -39,6 +44,12 @@ export class CentralLibrary {
       await readFile(this.indexFile, "utf8");
     } catch {
       await writeFile(this.indexFile, "{}\n", "utf8");
+    }
+
+    try {
+      await readFile(this.vectorFile, "utf8");
+    } catch {
+      await writeFile(this.vectorFile, JSON.stringify({ dims: 48, vectors: {} }, null, 2) + "\n", "utf8");
     }
   }
 
@@ -55,6 +66,7 @@ export class CentralLibrary {
     rows.push(trace);
     await this.save(rows);
     await this.reindex(rows);
+    await this.upsertVector(trace);
     return trace;
   }
 
@@ -64,34 +76,21 @@ export class CentralLibrary {
   }
 
   async retrieve(query: string, limit = 8, kind?: LibraryKind): Promise<LibraryTrace[]> {
-    const q = query.trim().toLowerCase();
-    const terms = this.tokenize(q);
     const rows = await this.load();
     const scoped = kind ? rows.filter((r) => r.kind === kind) : rows;
+    if (!query.trim()) return scoped.slice(-limit).reverse();
 
-    if (!terms.length) return scoped.slice(-limit).reverse();
+    const vectors = await this.loadVectors();
+    const ranked = await this.retrieval.retrieve(query, scoped, vectors, limit);
+    const map = new Map(scoped.map((s) => [s.id, s]));
 
-    const index = await this.loadIndex();
-    const idSet = new Set<string>();
-    for (const term of terms) {
-      for (const id of index[term] ?? []) idSet.add(id);
+    const out: LibraryTrace[] = [];
+    for (const row of ranked) {
+      const found = map.get(row.id);
+      if (!found) continue;
+      out.push({ ...found, score: row.score });
     }
-
-    const candidates = scoped.filter((r) => idSet.has(r.id));
-    const source = candidates.length > 0 ? candidates : scoped;
-
-    return source
-      .map((r) => {
-        const titleHits = this.termHits(this.tokenize(r.title), terms) * 2.4;
-        const textHits = this.termHits(this.tokenize(r.text), terms) * 1.6;
-        const tagHits = this.termHits(this.tokenize(r.tags.join(" ")), terms) * 2.1;
-        const termCoverage = this.coverage(this.tokenize(`${r.title} ${r.text} ${r.tags.join(" ")}`), terms) * 1.8;
-        const recency = new Date(r.ts).getTime() / 1e13;
-        return { ...r, score: titleHits + textHits + tagHits + termCoverage + recency };
-      })
-      .filter((r) => (r.score ?? 0) > 0)
-      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-      .slice(0, limit);
+    return out;
   }
 
   private async load(): Promise<LibraryTrace[]> {
@@ -101,15 +100,6 @@ export class CentralLibrary {
 
   private async save(rows: LibraryTrace[]): Promise<void> {
     await writeFile(this.file, JSON.stringify(rows, null, 2) + "\n", "utf8");
-  }
-
-  private async loadIndex(): Promise<InvertedIndex> {
-    try {
-      const raw = await readFile(this.indexFile, "utf8");
-      return JSON.parse(raw) as InvertedIndex;
-    } catch {
-      return {};
-    }
   }
 
   private async reindex(rows: LibraryTrace[]): Promise<void> {
@@ -135,14 +125,27 @@ export class CentralLibrary {
       .filter((t) => t.length >= 2);
   }
 
-  private termHits(sourceTerms: string[], terms: string[]): number {
-    const source = new Set(sourceTerms);
-    return terms.reduce((acc, t) => acc + (source.has(t) ? 1 : 0), 0);
+  private async loadVectors(): Promise<VectorStore> {
+    try {
+      const raw = await readFile(this.vectorFile, "utf8");
+      const parsed = JSON.parse(raw) as VectorStore;
+      if (!parsed.vectors) parsed.vectors = {};
+      parsed.dims ??= 48;
+      return parsed;
+    } catch {
+      return { dims: 48, vectors: {} };
+    }
   }
 
-  private coverage(sourceTerms: string[], terms: string[]): number {
-    const source = new Set(sourceTerms);
-    const hit = terms.filter((t) => source.has(t)).length;
-    return hit / Math.max(1, terms.length);
+  private async saveVectors(vectors: VectorStore): Promise<void> {
+    await writeFile(this.vectorFile, JSON.stringify(vectors, null, 2) + "\n", "utf8");
+  }
+
+  private async upsertVector(trace: LibraryTrace): Promise<void> {
+    const vectors = await this.loadVectors();
+    const embedded = await this.retrieval.embedDoc(trace);
+    vectors.vectors[trace.id] = embedded.vector;
+    vectors.dims = embedded.vector.length || vectors.dims;
+    await this.saveVectors(vectors);
   }
 }

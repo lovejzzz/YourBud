@@ -3,11 +3,13 @@
 A practical starter for a personal AI agent with:
 
 - modular tool system
-- persistent memory + retrieval scoring
+- persistent memory + hybrid semantic/lexical retrieval scoring
 - GPT-5.3 Codex LLM brain via OpenClaw adapter (subscription path)
 - optional OpenAI-compatible API brain
 - multi-agent mode (researcher / builder / critic)
 - self-debug and deep self-improve learning loop
+- policy conflict arbitration (contradiction detection + weighted merge)
+- lightweight latent learner core (persistent compact profile for response/planning conditioning)
 - **daily skill acquisition pipeline** (curriculum + evaluator + spaced repetition + promotion/demotion)
 - **Central Library** for knowledge, thinking, reflection, and self-awareness traces
 - web UI dashboard with highlights
@@ -36,6 +38,7 @@ Validation / tests:
 npm run build
 npm test          # unit + web smoke
 npm run smoke:cli # CLI smoke
+npm run bench     # retrieval + policy arbitration micro-bench
 ```
 
 ## Commands
@@ -121,6 +124,9 @@ src/
     agent.ts            # main loop + commands + daily hooks
     centralLibrary.ts   # catalog + retrieval for reflection traces
     learning.ts         # self-improvement + policy extraction
+    learnerCore.ts      # compact latent profile (strength/uncertainty/drift)
+    policyArbitration.ts# conflict detection + weighted policy merge
+    semanticRetrieval.ts# embedding-ready retrieval with lexical fallback
     orchestrator.ts     # researcher/builder/critic chain
     planner.ts          # command planning
     memory.ts           # persistent memory + retrieval

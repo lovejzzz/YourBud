@@ -1,5 +1,6 @@
 import { Brain } from "../llm/brain.js";
 import { CentralLibrary, LibraryKind } from "./centralLibrary.js";
+import { LearnerCore } from "./learnerCore.js";
 import { LearningEngine } from "./learning.js";
 import { MemoryStore } from "./memory.js";
 import { runMultiAgent } from "./orchestrator.js";
@@ -13,6 +14,7 @@ export class BudAgent {
   private turns = 0;
   private readonly llm = new Brain();
   private readonly learning: LearningEngine;
+  private readonly learnerCore: LearnerCore;
   private readonly skillTrainer: SkillTrainer;
   private readonly library: CentralLibrary;
   private readonly autoLearnInterval: number;
@@ -24,6 +26,7 @@ export class BudAgent {
     private readonly tools: Tool[]
   ) {
     this.learning = new LearningEngine(this.memory);
+    this.learnerCore = new LearnerCore(process.cwd());
     this.skillTrainer = new SkillTrainer(process.cwd(), this.memory);
     this.library = new CentralLibrary(process.cwd());
     this.autoLearnInterval = Number(process.env.AUTO_LEARN_INTERVAL ?? 6);
@@ -32,6 +35,7 @@ export class BudAgent {
 
   async init(): Promise<void> {
     await this.memory.init();
+    await this.learnerCore.init();
     await this.skillTrainer.init();
     await this.library.init();
   }
@@ -42,6 +46,7 @@ export class BudAgent {
     const skills = await this.skillTrainer.status();
     const dueSkills = skills.records.filter((r) => r.dueTs.slice(0, 10) <= new Date().toISOString().slice(0, 10)).length;
     const traces = await this.library.catalog(5);
+    const latent = await this.learnerCore.state();
 
     return [
       `name=${this.config.name}`,
@@ -58,7 +63,10 @@ export class BudAgent {
       `skill_curriculum_size=${skills.records.length}`,
       `skill_due_today=${dueSkills}`,
       `library_traces=${traces.length}`,
-      `last_daily_skill_run=${skills.lastDailyRunDate ?? "never"}`
+      `last_daily_skill_run=${skills.lastDailyRunDate ?? "never"}`,
+      `latent_cycles=${latent.cycles}`,
+      `latent_uncertainty=${latent.uncertainty.toFixed(2)}`,
+      `latent_drift=${latent.drift.toFixed(2)}`
     ].join("\n");
   }
 
@@ -200,6 +208,16 @@ export class BudAgent {
     this.history.push({ role: "assistant", content: reply, ts: new Date().toISOString() });
     await this.memory.add({ kind: "note", text: `Q: ${input} | A: ${reply.slice(0, 220)}`, tags: ["chat"] });
 
+    const policyHits = await this.learning.activePolicies(6);
+    const retrievalHits = await this.library.retrieve(input, 4);
+    await this.learnerCore.update({
+      taskSuccessRate: reply.toLowerCase().includes("recovered from error") ? 0.45 : 0.82,
+      policyStability: Math.min(1, policyHits.length / 6),
+      retrievalStrength: Math.min(1, retrievalHits.length / 4),
+      failureRate: Math.min(1, this.failures / Math.max(1, this.turns)),
+      contextShift: Math.min(1, input.split(/\s+/).length / 36)
+    });
+
     if (this.autoLearnInterval > 0 && this.turns % this.autoLearnInterval === 0) {
       await this.learning.improve(this.history, (messages) => this.llm.complete(messages));
     }
@@ -217,21 +235,30 @@ export class BudAgent {
         text: result.summary,
         tags: ["auto", "daily"]
       });
+      await this.learnerCore.update({
+        taskSuccessRate: 0.78,
+        policyStability: 0.7,
+        retrievalStrength: 0.58,
+        failureRate: Math.min(1, this.failures / Math.max(1, this.turns || 1)),
+        contextShift: 0.25
+      });
     }
   }
 
   private async buildDailyReport(mode: string): Promise<string> {
-    const [diag, highlights, policySummary] = await Promise.all([
+    const [diag, highlights, policySummary, latent] = await Promise.all([
       this.diagnostics(),
       this.dashboardHighlights(),
-      this.learning.policySummary(6)
+      this.learning.policySummary(6),
+      this.learnerCore.state()
     ]);
+    const planHints = this.learnerCore.dailyPlanHints(latent);
 
     const contextMode = mode === "auto" ? (this.history.length > 20 ? "compact" : "markdown") : mode;
     const today = new Date().toISOString().slice(0, 10);
 
     if (contextMode === "json") {
-      return JSON.stringify({ date: today, diagnostics: diag, highlights, policies: policySummary }, null, 2);
+      return JSON.stringify({ date: today, diagnostics: diag, highlights, policies: policySummary, latent, dailyPlan: planHints }, null, 2);
     }
 
     if (contextMode === "compact") {
@@ -242,7 +269,9 @@ export class BudAgent {
         policySummary
           .split("\n")
           .slice(0, 4)
-          .join("\n")
+          .join("\n"),
+        "Plan hints:",
+        ...planHints.map((p) => `- ${p}`)
       ].join("\n");
     }
 
@@ -258,7 +287,10 @@ export class BudAgent {
       "```",
       "",
       "## Policy Health",
-      policySummary
+      policySummary,
+      "",
+      "## Latent-State Daily Planning",
+      ...planHints.map((p) => `- ${p}`)
     ].join("\n");
   }
 
@@ -299,6 +331,8 @@ export class BudAgent {
       ? libraryHits.map((l) => `- [${l.kind}] ${l.title}: ${l.text}`).join("\n")
       : "(no relevant library traces)";
 
+    const latent = await this.learnerCore.state();
+    const latentContext = this.learnerCore.responseConditioning(latent);
     const convo = this.history.slice(-8).map((m) => ({ role: m.role, content: m.content }));
 
     try {
@@ -316,7 +350,9 @@ export class BudAgent {
             "Relevant memory context:",
             memoryContext,
             "Central Library context:",
-            libraryContext
+            libraryContext,
+            "Learner latent profile (use to tune style and certainty):",
+            latentContext
           ].join("\n")
         },
         ...convo,

@@ -21,3 +21,25 @@ test("central library retrieval prefers title/tag hits", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("central library semantic fallback still retrieves paraphrase-like query", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "yourbud-library-sem-"));
+  try {
+    const lib = new CentralLibrary(dir);
+    await lib.init();
+
+    await lib.add({
+      kind: "knowledge",
+      title: "Rate limit guardrails",
+      text: "Throttle outbound API calls and apply jittered retry windows",
+      tags: ["stability", "api"]
+    });
+
+    const hits = await lib.retrieve("api throttle jitter retries", 3);
+    assert.ok(hits.length >= 1);
+    assert.equal(hits[0].title, "Rate limit guardrails");
+    assert.ok((hits[0].score ?? 0) > 0);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
