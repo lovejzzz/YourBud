@@ -7,7 +7,7 @@ A practical starter for a personal AI agent with:
 - GPT-5.3 Codex LLM brain via OpenClaw adapter (subscription path)
 - optional OpenAI-compatible API brain
 - multi-agent mode (researcher / builder / critic)
-- self-debug and self-improve commands
+- self-debug and deep self-improve learning loop
 - web UI dashboard
 - CLI runtime
 
@@ -41,7 +41,7 @@ Advanced:
 
 - `swarm <task>` → runs researcher/builder/critic chain
 - `self-debug` → runs diagnostics (includes LLM status/model)
-- `self-improve` → writes an automatic reflection memory
+- `self-improve` → runs learning cycle (worked/failed/policies) and stores lessons
 - `recall <query>` → memory retrieval with ranking
 
 ## LLM brain configuration
@@ -69,6 +69,8 @@ Auto mode:
 Behavior:
 
 - normal chat replies use LLM + memory context injection
+- learned policies are injected into every reply prompt
+- `AUTO_LEARN_INTERVAL` triggers periodic background learning cycles
 - if chosen provider fails, agent falls back to rule-based replies
 - command pathways (`swarm`, `self-debug`, `self-improve`, `recall`, tools) still work
 
@@ -89,6 +91,7 @@ YourBud addresses each one:
 src/
   core/
     agent.ts          # main loop + commands
+    learning.ts       # self-improvement + policy extraction
     orchestrator.ts   # researcher/builder/critic chain
     planner.ts        # command planning
     memory.ts         # persistent memory + retrieval

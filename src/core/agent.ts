@@ -1,4 +1,5 @@
 import { Brain } from "../llm/brain.js";
+import { LearningEngine } from "./learning.js";
 import { MemoryStore } from "./memory.js";
 import { runMultiAgent } from "./orchestrator.js";
 import { naivePlan } from "./planner.js";
@@ -7,13 +8,19 @@ import { AgentConfig, ChatMessage, Tool } from "./types.js";
 export class BudAgent {
   private history: ChatMessage[] = [];
   private failures = 0;
+  private turns = 0;
   private readonly llm = new Brain();
+  private readonly learning: LearningEngine;
+  private readonly autoLearnInterval: number;
 
   constructor(
     private readonly config: AgentConfig,
     private readonly memory: MemoryStore,
     private readonly tools: Tool[]
-  ) {}
+  ) {
+    this.learning = new LearningEngine(this.memory);
+    this.autoLearnInterval = Number(process.env.AUTO_LEARN_INTERVAL ?? 6);
+  }
 
   async init(): Promise<void> {
     await this.memory.init();
@@ -21,6 +28,7 @@ export class BudAgent {
 
   async diagnostics(): Promise<string> {
     const recent = await this.memory.recent(5);
+    const policies = await this.memory.byTag("policy", 5);
     return [
       `name=${this.config.name}`,
       `mission=${this.config.mission}`,
@@ -29,11 +37,14 @@ export class BudAgent {
       `failures=${this.failures}`,
       `llm_enabled=${this.llm.isEnabled()}`,
       `llm_provider=${this.llm.providerName()}`,
-      `llm_model=${this.llm.modelName()}`
+      `llm_model=${this.llm.modelName()}`,
+      `auto_learn_interval=${this.autoLearnInterval}`,
+      `active_policies=${policies.length}`
     ].join("\n");
   }
 
   async handleUserInput(input: string): Promise<string> {
+    this.turns += 1;
     this.history.push({ role: "user", content: input, ts: new Date().toISOString() });
 
     const low = input.toLowerCase().trim();
@@ -56,8 +67,7 @@ export class BudAgent {
     }
 
     if (low === "self-improve") {
-      const reflection = await this.memory.reflectAndCompress();
-      return reflection ? `Improvement pass done.\n${reflection.text}` : "Not enough history yet for reflection.";
+      return this.learning.improve(this.history, (messages) => this.llm.complete(messages));
     }
 
     const steps = naivePlan(input, this.tools);
@@ -95,6 +105,11 @@ export class BudAgent {
     const reply = outputs.join("\n");
     this.history.push({ role: "assistant", content: reply, ts: new Date().toISOString() });
     await this.memory.add({ kind: "note", text: `Q: ${input} | A: ${reply.slice(0, 220)}`, tags: ["chat"] });
+
+    if (this.autoLearnInterval > 0 && this.turns % this.autoLearnInterval === 0) {
+      await this.learning.improve(this.history, (messages) => this.llm.complete(messages));
+    }
+
     return reply;
   }
 
@@ -108,6 +123,9 @@ export class BudAgent {
       ? memoryHits.map((m) => `- [${m.kind}] ${m.text}`).join("\n")
       : "(no relevant memory)";
 
+    const policyHits = await this.memory.byTag("policy", 6);
+    const policyContext = policyHits.length ? policyHits.map((p) => `- ${p.text}`).join("\n") : "(no active policies yet)";
+
     const convo = this.history.slice(-8).map((m) => ({ role: m.role, content: m.content }));
 
     try {
@@ -120,6 +138,8 @@ export class BudAgent {
             "Be concise, practical, and honest.",
             "If user asks for commands, provide exact commands.",
             "Available built-in commands: shell, time, echo, remember, recall, swarm, self-debug, self-improve, memories.",
+            "Active learned policies (follow these unless user overrides):",
+            policyContext,
             "Relevant memory context:",
             memoryContext
           ].join("\n")

@@ -8,7 +8,7 @@ export interface ChatMessage {
 
 export interface MemoryEntry {
   id: string;
-  kind: "decision" | "todo" | "fact" | "note" | "reflection";
+  kind: "decision" | "todo" | "fact" | "note" | "reflection" | "policy" | "lesson";
   text: string;
   ts: string;
   score?: number;

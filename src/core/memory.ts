@@ -47,6 +47,15 @@ export class MemoryStore {
     return entries.slice(-limit).reverse();
   }
 
+  async byTag(tag: string, limit = 10): Promise<MemoryEntry[]> {
+    const entries = await this.load();
+    const key = tag.toLowerCase();
+    return entries
+      .filter((e) => (e.tags ?? []).some((t) => t.toLowerCase() === key))
+      .slice(-limit)
+      .reverse();
+  }
+
   async search(query: string, limit = 8): Promise<MemoryEntry[]> {
     const q = query.toLowerCase().trim();
     if (!q) return this.recent(limit);
