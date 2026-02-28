@@ -4,6 +4,7 @@ A practical starter for a personal AI agent with:
 
 - modular tool system
 - persistent memory + retrieval scoring
+- GPT-5.3 Codex LLM brain (OpenAI-compatible)
 - multi-agent mode (researcher / builder / critic)
 - self-debug and self-improve commands
 - web UI dashboard
@@ -13,6 +14,8 @@ A practical starter for a personal AI agent with:
 
 ```bash
 npm install
+cp .env.example .env
+# set OPENAI_API_KEY in .env
 npm run dev
 ```
 
@@ -36,9 +39,26 @@ Core:
 Advanced:
 
 - `swarm <task>` → runs researcher/builder/critic chain
-- `self-debug` → runs diagnostics
+- `self-debug` → runs diagnostics (includes LLM status/model)
 - `self-improve` → writes an automatic reflection memory
 - `recall <query>` → memory retrieval with ranking
+
+## LLM brain configuration
+
+By default, the LLM brain uses:
+
+- `LLM_MODEL=openai-codex/gpt-5.3-codex`
+- `OPENAI_BASE_URL=https://api.openai.com/v1`
+
+Required:
+
+- `OPENAI_API_KEY=<your_key>`
+
+Behavior:
+
+- if API key exists: normal chat replies use LLM + memory context injection
+- if API key missing or LLM call fails: agent falls back to rule-based replies
+- command pathways (`swarm`, `self-debug`, `self-improve`, `recall`, tools) still work
 
 ## Why this architecture
 
@@ -61,6 +81,8 @@ src/
     planner.ts        # command planning
     memory.ts         # persistent memory + retrieval
     types.ts          # shared interfaces
+  llm/
+    openai.ts         # OpenAI-compatible LLM adapter
   tools/
     local.ts          # local tool plugins
   web/

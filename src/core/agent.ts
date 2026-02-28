@@ -1,3 +1,4 @@
+import { OpenAILlm } from "../llm/openai.js";
 import { MemoryStore } from "./memory.js";
 import { runMultiAgent } from "./orchestrator.js";
 import { naivePlan } from "./planner.js";
@@ -6,6 +7,7 @@ import { AgentConfig, ChatMessage, Tool } from "./types.js";
 export class BudAgent {
   private history: ChatMessage[] = [];
   private failures = 0;
+  private readonly llm = new OpenAILlm();
 
   constructor(
     private readonly config: AgentConfig,
@@ -24,7 +26,9 @@ export class BudAgent {
       `mission=${this.config.mission}`,
       `tools=${this.tools.map((t) => t.name).join(",")}`,
       `recent_memories=${recent.length}`,
-      `failures=${this.failures}`
+      `failures=${this.failures}`,
+      `llm_enabled=${this.llm.isEnabled()}`,
+      `llm_model=${this.llm.modelName()}`
     ].join("\n");
   }
 
@@ -79,7 +83,7 @@ export class BudAgent {
             outputs.push(`Saved to memory: ${text}`);
           }
         } else {
-          outputs.push(this.defaultReply(step.payload));
+          outputs.push(await this.smartReply(step.payload));
         }
       } catch (error) {
         this.failures += 1;
@@ -91,6 +95,41 @@ export class BudAgent {
     this.history.push({ role: "assistant", content: reply, ts: new Date().toISOString() });
     await this.memory.add({ kind: "note", text: `Q: ${input} | A: ${reply.slice(0, 220)}`, tags: ["chat"] });
     return reply;
+  }
+
+  private async smartReply(input: string): Promise<string> {
+    if (!this.llm.isEnabled()) {
+      return this.defaultReply(input);
+    }
+
+    const memoryHits = await this.memory.search(input, 6);
+    const memoryContext = memoryHits.length
+      ? memoryHits.map((m) => `- [${m.kind}] ${m.text}`).join("\n")
+      : "(no relevant memory)";
+
+    const convo = this.history.slice(-8).map((m) => ({ role: m.role, content: m.content }));
+
+    try {
+      return await this.llm.complete([
+        {
+          role: "system",
+          content: [
+            `You are ${this.config.name}.`,
+            `Mission: ${this.config.mission}`,
+            "Be concise, practical, and honest.",
+            "If user asks for commands, provide exact commands.",
+            "Available built-in commands: shell, time, echo, remember, recall, swarm, self-debug, self-improve, memories.",
+            "Relevant memory context:",
+            memoryContext
+          ].join("\n")
+        },
+        ...convo,
+        { role: "user", content: input }
+      ]);
+    } catch {
+      this.failures += 1;
+      return this.defaultReply(input);
+    }
   }
 
   private defaultReply(input: string): string {
