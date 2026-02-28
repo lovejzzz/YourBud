@@ -26,7 +26,13 @@ async function runCli(agent: BudAgent) {
   console.log("🌱 YourBud ready. Type 'exit' to quit.");
 
   while (true) {
-    const line = (await rl.question("> ")).trim();
+    let line = "";
+    try {
+      line = (await rl.question("> ")).trim();
+    } catch {
+      break;
+    }
+
     if (!line) continue;
     if (line.toLowerCase() === "exit") break;
 

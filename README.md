@@ -4,7 +4,8 @@ A practical starter for a personal AI agent with:
 
 - modular tool system
 - persistent memory + retrieval scoring
-- GPT-5.3 Codex LLM brain (OpenAI-compatible)
+- GPT-5.3 Codex LLM brain via OpenClaw adapter (subscription path)
+- optional OpenAI-compatible API brain
 - multi-agent mode (researcher / builder / critic)
 - self-debug and self-improve commands
 - web UI dashboard
@@ -15,7 +16,7 @@ A practical starter for a personal AI agent with:
 ```bash
 npm install
 cp .env.example .env
-# set OPENAI_API_KEY in .env
+# default is subscription-style via OpenClaw bridge (BRAIN_PROVIDER=openclaw)
 npm run dev
 ```
 
@@ -45,19 +46,30 @@ Advanced:
 
 ## LLM brain configuration
 
-By default, the LLM brain uses:
+Default (same style as Bud in OpenClaw runtime):
 
-- `LLM_MODEL=openai-codex/gpt-5.3-codex`
-- `OPENAI_BASE_URL=https://api.openai.com/v1`
+- `BRAIN_PROVIDER=openclaw`
+- `OPENCLAW_AGENT_ID=main`
 
-Required:
+This calls:
 
+- `openclaw agent --agent main --json ...`
+
+Optional API mode:
+
+- `BRAIN_PROVIDER=openai`
 - `OPENAI_API_KEY=<your_key>`
+- `OPENAI_BASE_URL=https://api.openai.com/v1`
+- `LLM_MODEL=openai-codex/gpt-5.3-codex`
+
+Auto mode:
+
+- `BRAIN_PROVIDER=auto` → uses OpenAI if API key exists, otherwise OpenClaw bridge.
 
 Behavior:
 
-- if API key exists: normal chat replies use LLM + memory context injection
-- if API key missing or LLM call fails: agent falls back to rule-based replies
+- normal chat replies use LLM + memory context injection
+- if chosen provider fails, agent falls back to rule-based replies
 - command pathways (`swarm`, `self-debug`, `self-improve`, `recall`, tools) still work
 
 ## Why this architecture
@@ -82,6 +94,8 @@ src/
     memory.ts         # persistent memory + retrieval
     types.ts          # shared interfaces
   llm/
+    brain.ts          # provider switch + fallback strategy
+    openclaw.ts       # OpenClaw subscription-style bridge
     openai.ts         # OpenAI-compatible LLM adapter
   tools/
     local.ts          # local tool plugins

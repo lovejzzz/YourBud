@@ -1,4 +1,4 @@
-import { OpenAILlm } from "../llm/openai.js";
+import { Brain } from "../llm/brain.js";
 import { MemoryStore } from "./memory.js";
 import { runMultiAgent } from "./orchestrator.js";
 import { naivePlan } from "./planner.js";
@@ -7,7 +7,7 @@ import { AgentConfig, ChatMessage, Tool } from "./types.js";
 export class BudAgent {
   private history: ChatMessage[] = [];
   private failures = 0;
-  private readonly llm = new OpenAILlm();
+  private readonly llm = new Brain();
 
   constructor(
     private readonly config: AgentConfig,
@@ -28,6 +28,7 @@ export class BudAgent {
       `recent_memories=${recent.length}`,
       `failures=${this.failures}`,
       `llm_enabled=${this.llm.isEnabled()}`,
+      `llm_provider=${this.llm.providerName()}`,
       `llm_model=${this.llm.modelName()}`
     ].join("\n");
   }
