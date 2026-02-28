@@ -8,9 +8,10 @@ export interface ChatMessage {
 
 export interface MemoryEntry {
   id: string;
-  kind: "decision" | "todo" | "fact" | "note";
+  kind: "decision" | "todo" | "fact" | "note" | "reflection";
   text: string;
   ts: string;
+  score?: number;
   tags?: string[];
 }
 
@@ -28,4 +29,12 @@ export interface AgentConfig {
   name: string;
   mission: string;
   maxTurnsPerRun: number;
+}
+
+export type AgentRole = "researcher" | "builder" | "critic";
+
+export interface AgentCard {
+  role: AgentRole;
+  task: string;
+  output: string;
 }

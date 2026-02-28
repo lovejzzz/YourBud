@@ -42,17 +42,49 @@ export class MemoryStore {
     return full;
   }
 
-  async find(query: string, limit = 8): Promise<MemoryEntry[]> {
-    const q = query.toLowerCase();
-    const entries = await this.load();
-    return entries
-      .filter((e) => e.text.toLowerCase().includes(q) || e.tags?.some((t) => t.toLowerCase().includes(q)))
-      .slice(-limit)
-      .reverse();
-  }
-
   async recent(limit = 12): Promise<MemoryEntry[]> {
     const entries = await this.load();
     return entries.slice(-limit).reverse();
+  }
+
+  async search(query: string, limit = 8): Promise<MemoryEntry[]> {
+    const q = query.toLowerCase().trim();
+    if (!q) return this.recent(limit);
+
+    const terms = q.split(/\s+/).filter(Boolean);
+    const entries = await this.load();
+
+    const scored = entries
+      .map((e) => {
+        const body = `${e.text} ${(e.tags ?? []).join(" ")}`.toLowerCase();
+        const hits = terms.reduce((acc, t) => acc + (body.includes(t) ? 1 : 0), 0);
+        const recencyBoost = new Date(e.ts).getTime() / 1e13;
+        return { ...e, score: hits * 2 + recencyBoost };
+      })
+      .filter((e) => (e.score ?? 0) > 0)
+      .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+      .slice(0, limit);
+
+    return scored;
+  }
+
+  async reflectAndCompress(windowSize = 40): Promise<MemoryEntry | null> {
+    const entries = await this.load();
+    if (entries.length < 8) return null;
+
+    const recent = entries.slice(-windowSize);
+    const key = recent
+      .filter((e) => e.kind !== "reflection")
+      .slice(-10)
+      .map((e) => `- [${e.kind}] ${e.text}`)
+      .join("\n");
+
+    if (!key.trim()) return null;
+
+    return this.add({
+      kind: "reflection",
+      text: `Session reflection:\n${key}`,
+      tags: ["summary", "auto"]
+    });
   }
 }

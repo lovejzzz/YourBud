@@ -1,11 +1,13 @@
 # YourBud 🌱
 
-A clean starter for a personal AI agent with:
+A practical starter for a personal AI agent with:
 
 - modular tool system
-- lightweight local memory store
-- simple planning loop
-- CLI chat runtime
+- persistent memory + retrieval scoring
+- multi-agent mode (researcher / builder / critic)
+- self-debug and self-improve commands
+- web UI dashboard
+- CLI runtime
 
 ## Quick start
 
@@ -14,7 +16,16 @@ npm install
 npm run dev
 ```
 
-Then try:
+Web dashboard:
+
+```bash
+npm run dev:web
+# open http://localhost:8787
+```
+
+## Commands
+
+Core:
 
 - `time`
 - `echo hello`
@@ -22,33 +33,45 @@ Then try:
 - `remember SKYX likes punchy examples`
 - `memories`
 
-## Why this repo exists
+Advanced:
 
-This is a foundation for a "dream AI partner" architecture:
+- `swarm <task>` → runs researcher/builder/critic chain
+- `self-debug` → runs diagnostics
+- `self-improve` → writes an automatic reflection memory
+- `recall <query>` → memory retrieval with ranking
 
-1. Clear mission + behavior config
-2. Memory that persists between runs
-3. Tool plugins with permission control
-4. Planner/executor separation
-5. Easy upgrade path to real LLM orchestration
+## Why this architecture
 
-## Next upgrades (suggested)
+Most agents fail in 4 places: memory drift, no observability, weak orchestration, and poor recovery.
 
-- LLM adapter (`OpenAI` / `Anthropic`)
-- memory scoring + retrieval ranking
-- tool safety policies (allowlist + dry-run)
-- web UI dashboard
-- multi-agent orchestration (researcher / builder / critic)
+YourBud addresses each one:
+
+1. **Memory**: persistent + searchable + periodic reflections
+2. **Observability**: diagnostics endpoint/command
+3. **Orchestration**: explicit multi-agent role chain
+4. **Recovery**: catches tool errors and continues
 
 ## Structure
 
 ```txt
 src/
   core/
-    agent.ts      # main loop
-    planner.ts    # command planning
-    memory.ts     # persistent memory
-    types.ts      # shared interfaces
+    agent.ts          # main loop + commands
+    orchestrator.ts   # researcher/builder/critic chain
+    planner.ts        # command planning
+    memory.ts         # persistent memory + retrieval
+    types.ts          # shared interfaces
   tools/
-    local.ts      # built-in local tools
+    local.ts          # local tool plugins
+  web/
+    server.ts         # dashboard + API
+  index.ts            # app entry (CLI or Web)
 ```
+
+## Next upgrades
+
+- Real LLM adapters (OpenAI / Anthropic)
+- Tool permission policies (allowlist + confirmation gates)
+- Autonomous evaluation loop with regression tests
+- Better long-term memory compaction strategy
+- Background workers for parallel agent swarms

@@ -4,8 +4,9 @@ import { stdin as input, stdout as output } from "node:process";
 import { BudAgent } from "./core/agent.js";
 import { MemoryStore } from "./core/memory.js";
 import { createLocalTools } from "./tools/local.js";
+import { startDashboard } from "./web/server.js";
 
-async function main() {
+async function createAgent(): Promise<BudAgent> {
   const agent = new BudAgent(
     {
       name: process.env.AGENT_NAME ?? "Bud",
@@ -17,7 +18,10 @@ async function main() {
   );
 
   await agent.init();
+  return agent;
+}
 
+async function runCli(agent: BudAgent) {
   const rl = readline.createInterface({ input, output });
   console.log("🌱 YourBud ready. Type 'exit' to quit.");
 
@@ -39,6 +43,18 @@ async function main() {
   }
 
   rl.close();
+}
+
+async function main() {
+  const agent = await createAgent();
+  const mode = (process.env.APP_MODE ?? "cli").toLowerCase();
+
+  if (mode === "web") {
+    await startDashboard(agent, Number(process.env.PORT ?? 8787));
+    return;
+  }
+
+  await runCli(agent);
 }
 
 main().catch((err) => {
