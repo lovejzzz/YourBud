@@ -38,7 +38,7 @@ export class BudAgent {
 
   async diagnostics(): Promise<string> {
     const recent = await this.memory.recent(5);
-    const policies = await this.memory.byTag("policy", 5);
+    const policies = await this.learning.activePolicies(5);
     const skills = await this.skillTrainer.status();
     const dueSkills = skills.records.filter((r) => r.dueTs.slice(0, 10) <= new Date().toISOString().slice(0, 10)).length;
     const traces = await this.library.catalog(5);
@@ -116,6 +116,15 @@ export class BudAgent {
         tags: ["auto", "learning"]
       });
       return report;
+    }
+
+    if (low === "policy-status") {
+      return this.learning.policySummary();
+    }
+
+    if (low === "daily-report" || low.startsWith("daily-report ")) {
+      const mode = low.replace("daily-report", "").trim() || "auto";
+      return this.buildDailyReport(mode);
     }
 
     if (low === "daily-run" || low === "daily-run now") {
@@ -211,6 +220,48 @@ export class BudAgent {
     }
   }
 
+  private async buildDailyReport(mode: string): Promise<string> {
+    const [diag, highlights, policySummary] = await Promise.all([
+      this.diagnostics(),
+      this.dashboardHighlights(),
+      this.learning.policySummary(6)
+    ]);
+
+    const contextMode = mode === "auto" ? (this.history.length > 20 ? "compact" : "markdown") : mode;
+    const today = new Date().toISOString().slice(0, 10);
+
+    if (contextMode === "json") {
+      return JSON.stringify({ date: today, diagnostics: diag, highlights, policies: policySummary }, null, 2);
+    }
+
+    if (contextMode === "compact") {
+      return [
+        `Daily report ${today}`,
+        highlights,
+        "Top policies:",
+        policySummary
+          .split("\n")
+          .slice(0, 4)
+          .join("\n")
+      ].join("\n");
+    }
+
+    return [
+      `# Daily Report — ${today}`,
+      "",
+      "## Highlights",
+      highlights,
+      "",
+      "## Diagnostics",
+      "```",
+      diag,
+      "```",
+      "",
+      "## Policy Health",
+      policySummary
+    ].join("\n");
+  }
+
   private async handleLibraryAdd(raw: string): Promise<string> {
     const [kindRaw, titleAndText] = raw.split("::");
     if (!kindRaw || !titleAndText) {
@@ -240,8 +291,8 @@ export class BudAgent {
       ? memoryHits.map((m) => `- [${m.kind}] ${m.text}`).join("\n")
       : "(no relevant memory)";
 
-    const policyHits = await this.memory.byTag("policy", 6);
-    const policyContext = policyHits.length ? policyHits.map((p) => `- ${p.text}`).join("\n") : "(no active policies yet)";
+    const policyHits = await this.learning.activePolicies(6);
+    const policyContext = policyHits.length ? policyHits.map((p) => `- ${p}`).join("\n") : "(no active policies yet)";
 
     const libraryHits = await this.library.retrieve(input, 4);
     const libraryContext = libraryHits.length
@@ -259,7 +310,7 @@ export class BudAgent {
             `Mission: ${this.config.mission}`,
             "Be concise, practical, and honest.",
             "If user asks for commands, provide exact commands.",
-            "Available built-in commands: shell, time, echo, remember, recall, swarm, self-debug, self-improve, memories, daily-run, skill-status, library catalog, library find, library add, dashboard-highlights.",
+            "Available built-in commands: shell, time, echo, remember, recall, swarm, self-debug, self-improve, policy-status, memories, daily-run, skill-status, daily-report, library catalog, library find, library add, dashboard-highlights.",
             "Active learned policies (follow these unless user overrides):",
             policyContext,
             "Relevant memory context:",
@@ -295,6 +346,8 @@ export class BudAgent {
       "- self-improve",
       "- daily-run",
       "- skill-status",
+      "- policy-status",
+      "- daily-report [auto|compact|markdown|json]",
       "- library catalog",
       "- library find <query>",
       "- library add <kind> <title> :: <text>",

@@ -13,11 +13,13 @@ export class OpenAILlm {
   private readonly apiKey?: string;
   private readonly baseUrl: string;
   private readonly model: string;
+  private readonly timeoutMs: number;
 
   constructor(config: LlmConfig = {}) {
     this.apiKey = config.apiKey ?? process.env.OPENAI_API_KEY;
     this.baseUrl = (config.baseUrl ?? process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
     this.model = config.model ?? process.env.LLM_MODEL ?? "openai-codex/gpt-5.3-codex";
+    this.timeoutMs = Math.max(2000, Number(process.env.OPENAI_TIMEOUT_MS ?? 60000));
   }
 
   isEnabled(): boolean {
@@ -29,18 +31,25 @@ export class OpenAILlm {
       throw new Error("OPENAI_API_KEY missing");
     }
 
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.apiKey}`
-      },
-      body: JSON.stringify({
-        model: this.model,
-        messages,
-        temperature: 0.4
-      })
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.apiKey}`
+        },
+        body: JSON.stringify({
+          model: this.model,
+          messages,
+          temperature: 0.4
+        }),
+        signal: AbortSignal.timeout(this.timeoutMs)
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`OpenAI network error: ${msg}`);
+    }
 
     if (!res.ok) {
       const body = await res.text();

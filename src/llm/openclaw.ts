@@ -52,9 +52,21 @@ export class OpenClawLlm {
       "--json"
     ];
 
-    const { stdout } = await execFile("openclaw", args, { timeout: this.timeoutMs, maxBuffer: 2 * 1024 * 1024 });
+    let stdout = "";
+    try {
+      const result = await execFile("openclaw", args, { timeout: this.timeoutMs, maxBuffer: 2 * 1024 * 1024 });
+      stdout = result.stdout;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(`OpenClaw CLI error: ${msg}`);
+    }
 
-    const data = JSON.parse(stdout) as AgentJson;
+    let data: AgentJson;
+    try {
+      data = JSON.parse(stdout) as AgentJson;
+    } catch {
+      throw new Error(`OpenClaw returned non-JSON output: ${stdout.slice(0, 280)}`);
+    }
     const text = data.result?.payloads?.find((p) => typeof p.text === "string")?.text?.trim();
 
     if (data.result?.meta?.agentMeta?.model) {

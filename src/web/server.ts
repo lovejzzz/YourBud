@@ -93,6 +93,19 @@ export async function startDashboard(agent: BudAgent, port = 8787): Promise<void
       return;
     }
 
+    if (req.method === "GET" && url === "/api/health") {
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ ok: true, ts: new Date().toISOString() }));
+      return;
+    }
+
+    if (req.method === "GET" && url === "/api/report") {
+      const output = await agent.handleUserInput("daily-report compact");
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ output }));
+      return;
+    }
+
     if (req.method === "POST" && url === "/api/daily-run") {
       const output = await agent.handleUserInput("daily-run");
       res.setHeader("content-type", "application/json");

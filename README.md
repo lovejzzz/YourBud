@@ -11,6 +11,7 @@ A practical starter for a personal AI agent with:
 - **daily skill acquisition pipeline** (curriculum + evaluator + spaced repetition + promotion/demotion)
 - **Central Library** for knowledge, thinking, reflection, and self-awareness traces
 - web UI dashboard with highlights
+- health/report API endpoints for smoke checks (`/api/health`, `/api/report`)
 - CLI runtime
 
 ## Quick start
@@ -27,6 +28,14 @@ Web dashboard:
 ```bash
 npm run dev:web
 # open http://localhost:8787
+```
+
+Validation / tests:
+
+```bash
+npm run build
+npm test          # unit + web smoke
+npm run smoke:cli # CLI smoke
 ```
 
 ## Commands
@@ -48,6 +57,8 @@ Advanced:
 - `daily-run` → force manual daily skill training
 - `daily-run auto` → run daily trainer only if not already run today
 - `skill-status` → inspect curriculum progression and due dates
+- `policy-status` → inspect scored policy set (score/streak/decay)
+- `daily-report [auto|compact|markdown|json]` → context-adaptive daily summary format
 - `library catalog` → latest central library traces
 - `library find <query>` → search central library
 - `library add <kind> <title> :: <text>` → add a trace (`knowledge|thinking|reflection|self-awareness`)
@@ -79,6 +90,8 @@ Learning automation:
 
 - `AUTO_LEARN_INTERVAL=6` → run self-improve every N turns
 - `AUTO_DAILY_RUN=true` → run daily skill trainer hook on first interaction each day
+- `BRAIN_RETRY_MAX=2` + `BRAIN_RETRY_BASE_MS=350` → retry transient LLM failures with backoff
+- `OPENAI_TIMEOUT_MS=60000` + `OPENCLAW_TIMEOUT_MS=90000` → hard timeout budget per brain adapter call
 
 Behavior:
 
