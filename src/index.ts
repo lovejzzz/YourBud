@@ -4,9 +4,14 @@ import { stdin as input, stdout as output } from "node:process";
 import { BudAgent } from "./core/agent.js";
 import { MemoryStore } from "./core/memory.js";
 import { createLocalTools } from "./tools/local.js";
+import { ToolForge } from "./tools/forge.js";
 import { startDashboard } from "./web/server.js";
 
 async function createAgent(): Promise<BudAgent> {
+  const forge = new ToolForge(process.cwd());
+  await forge.init();
+  const forgedTools = await forge.loadEnabledTools();
+
   const agent = new BudAgent(
     {
       name: process.env.AGENT_NAME ?? "Bud",
@@ -14,7 +19,7 @@ async function createAgent(): Promise<BudAgent> {
       maxTurnsPerRun: Number(process.env.MAX_TURNS_PER_RUN ?? 4)
     },
     new MemoryStore(process.cwd()),
-    createLocalTools()
+    [...createLocalTools(), ...forgedTools]
   );
 
   await agent.init();

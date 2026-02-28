@@ -3,6 +3,7 @@
 A practical starter for a personal AI agent with:
 
 - modular tool system
+- Tool Forge (agent can build small tools for itself)
 - persistent memory + hybrid semantic/lexical retrieval scoring
 - GPT-5.3 Codex LLM brain via OpenClaw adapter (subscription path)
 - optional OpenAI-compatible API brain
@@ -65,6 +66,8 @@ Advanced:
 - `library catalog` → latest central library traces
 - `library find <query>` → search central library
 - `library add <kind> <title> :: <text>` → add a trace (`knowledge|thinking|reflection|self-awareness`)
+- `forge-tool [textstats|slugger]` → self-forge a small utility tool
+- `tool-health` → inspect forged tools registry
 - `dashboard-highlights` → summary for dashboard blocks
 
 ## LLM brain configuration

@@ -7,6 +7,7 @@ import { runMultiAgent } from "./orchestrator.js";
 import { naivePlan } from "./planner.js";
 import { SkillTrainer } from "./skillTrainer.js";
 import { AgentConfig, ChatMessage, Tool } from "./types.js";
+import { ToolForge } from "../tools/forge.js";
 
 export class BudAgent {
   private history: ChatMessage[] = [];
@@ -17,6 +18,7 @@ export class BudAgent {
   private readonly learnerCore: LearnerCore;
   private readonly skillTrainer: SkillTrainer;
   private readonly library: CentralLibrary;
+  private readonly toolForge: ToolForge;
   private readonly autoLearnInterval: number;
   private readonly autoDailyRun: boolean;
 
@@ -29,6 +31,7 @@ export class BudAgent {
     this.learnerCore = new LearnerCore(process.cwd());
     this.skillTrainer = new SkillTrainer(process.cwd(), this.memory);
     this.library = new CentralLibrary(process.cwd());
+    this.toolForge = new ToolForge(process.cwd());
     this.autoLearnInterval = Number(process.env.AUTO_LEARN_INTERVAL ?? 6);
     this.autoDailyRun = String(process.env.AUTO_DAILY_RUN ?? "true").toLowerCase() !== "false";
   }
@@ -38,6 +41,7 @@ export class BudAgent {
     await this.learnerCore.init();
     await this.skillTrainer.init();
     await this.library.init();
+    await this.toolForge.init();
   }
 
   async diagnostics(): Promise<string> {
@@ -47,6 +51,7 @@ export class BudAgent {
     const dueSkills = skills.records.filter((r) => r.dueTs.slice(0, 10) <= new Date().toISOString().slice(0, 10)).length;
     const traces = await this.library.catalog(5);
     const latent = await this.learnerCore.state();
+    const forgedTools = await this.toolForge.list();
 
     return [
       `name=${this.config.name}`,
@@ -63,6 +68,7 @@ export class BudAgent {
       `skill_curriculum_size=${skills.records.length}`,
       `skill_due_today=${dueSkills}`,
       `library_traces=${traces.length}`,
+      `forged_tools=${forgedTools.length}`,
       `last_daily_skill_run=${skills.lastDailyRunDate ?? "never"}`,
       `latent_cycles=${latent.cycles}`,
       `latent_uncertainty=${latent.uncertainty.toFixed(2)}`,
@@ -155,6 +161,31 @@ export class BudAgent {
         .slice(0, 10)
         .map((r) => `${r.name}: L${r.level}, ${r.stage}, due ${r.dueTs.slice(0, 10)}, score ${r.lastScore ?? "n/a"}`)
         .join("\n");
+    }
+
+    if (low === "tool-health") {
+      const rows = await this.toolForge.list();
+      return rows.length
+        ? rows.map((t) => `- ${t.name} (${t.kind}) enabled=${t.enabled}`).join("\n")
+        : "No forged tools yet.";
+    }
+
+    if (low.startsWith("forge-tool")) {
+      const arg = input.slice("forge-tool".length).trim().toLowerCase();
+      const kind = arg.includes("slug") ? "slugify" : "text-stats";
+      const name = kind === "slugify" ? "slugger" : "textstats";
+      const spec = await this.toolForge.forgeSmallTool(name, kind, `forged from request: ${arg || "default"}`);
+      const loaded = (await this.toolForge.loadEnabledTools()).find((t) => t.name === spec.name);
+      if (loaded && !this.tools.some((t) => t.name === loaded.name)) {
+        this.tools.push(loaded);
+      }
+      await this.library.add({
+        kind: "thinking",
+        title: `Forged tool: ${spec.name}`,
+        text: `Created ${spec.kind} tool for self-improvement and utility.`,
+        tags: ["toolforge", "auto"]
+      });
+      return `Forged tool ready: ${spec.name} (${spec.kind}). Try: ${spec.name} <text>`;
     }
 
     if (low === "library catalog") {
@@ -344,7 +375,7 @@ export class BudAgent {
             `Mission: ${this.config.mission}`,
             "Be concise, practical, and honest.",
             "If user asks for commands, provide exact commands.",
-            "Available built-in commands: shell, time, echo, remember, recall, swarm, self-debug, self-improve, policy-status, memories, daily-run, skill-status, daily-report, library catalog, library find, library add, dashboard-highlights.",
+            "Available built-in commands: shell, time, echo, remember, recall, swarm, self-debug, self-improve, policy-status, memories, daily-run, skill-status, daily-report, library catalog, library find, library add, dashboard-highlights, forge-tool, tool-health.",
             "Active learned policies (follow these unless user overrides):",
             policyContext,
             "Relevant memory context:",
@@ -387,7 +418,9 @@ export class BudAgent {
       "- library catalog",
       "- library find <query>",
       "- library add <kind> <title> :: <text>",
-      "- dashboard-highlights"
+      "- dashboard-highlights",
+      "- forge-tool [textstats|slugger]",
+      "- tool-health"
     ].join("\n");
   }
 }
