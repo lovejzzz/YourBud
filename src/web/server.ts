@@ -12,7 +12,7 @@ const page = `<!doctype html>
       .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
       .card { background:#171a21; border:1px solid #2b3242; border-radius:12px; padding:16px; margin-bottom:16px; }
       textarea, input { width:100%; background:#0f1115; color:#e8ecf1; border:1px solid #2b3242; border-radius:8px; padding:10px; }
-      button { background:#6b8cff; color:white; border:0; border-radius:8px; padding:10px 14px; cursor:pointer; }
+      button { background:#6b8cff; color:white; border:0; border-radius:8px; padding:10px 14px; cursor:pointer; margin-right:8px; }
       pre { white-space: pre-wrap; }
     </style>
   </head>
@@ -23,6 +23,7 @@ const page = `<!doctype html>
         <input id="msg" placeholder="Try: swarm build a task manager" />
         <div style="height:10px"></div>
         <button onclick="send()">Send</button>
+        <button onclick="runDaily()">Run Daily Skills</button>
       </div>
       <div class="card">
         <h3>Response</h3>
@@ -32,6 +33,11 @@ const page = `<!doctype html>
         <h3>Diagnostics</h3>
         <button onclick="diag()">Run self-debug</button>
         <pre id="diag"></pre>
+      </div>
+      <div class="card">
+        <h3>Highlights</h3>
+        <button onclick="highlights()">Refresh highlights</button>
+        <pre id="hl"></pre>
       </div>
     </div>
 
@@ -47,6 +53,18 @@ const page = `<!doctype html>
         const data = await res.json();
         document.getElementById('diag').textContent = data.output;
       }
+      async function highlights() {
+        const res = await fetch('/api/highlights');
+        const data = await res.json();
+        document.getElementById('hl').textContent = data.output;
+      }
+      async function runDaily() {
+        const res = await fetch('/api/daily-run', { method:'POST' });
+        const data = await res.json();
+        document.getElementById('out').textContent = data.output;
+        await highlights();
+      }
+      highlights();
     </script>
   </body>
 </html>`;
@@ -63,6 +81,20 @@ export async function startDashboard(agent: BudAgent, port = 8787): Promise<void
 
     if (req.method === "GET" && url === "/api/diag") {
       const output = await agent.diagnostics();
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ output }));
+      return;
+    }
+
+    if (req.method === "GET" && url === "/api/highlights") {
+      const output = await agent.dashboardHighlights();
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({ output }));
+      return;
+    }
+
+    if (req.method === "POST" && url === "/api/daily-run") {
+      const output = await agent.handleUserInput("daily-run");
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({ output }));
       return;
